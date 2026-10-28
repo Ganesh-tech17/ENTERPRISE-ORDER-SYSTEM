@@ -1,0 +1,67 @@
+### Sample requests (IntelliJ / VS Code REST Client). Everything goes through the gateway on :8080.
+
+### 1. Happy path - create an order (user 1 is seeded). Note the Idempotency-Key.
+POST http://localhost:8080/orders
+Content-Type: application/json
+Idempotency-Key: demo-order-001
+
+{
+  "userId": 1,
+  "items": [
+    { "sku": "SKU-1", "quantity": 2, "unitPrice": 49.99 },
+    { "sku": "SKU-2", "quantity": 1, "unitPrice": 120.00 }
+  ]
+}
+
+### 2. Send the EXACT same request again -> 200 OK, same order id, header Idempotent-Replayed: true
+POST http://localhost:8080/orders
+Content-Type: application/json
+Idempotency-Key: demo-order-001
+
+{
+  "userId": 1,
+  "items": [
+    { "sku": "SKU-1", "quantity": 2, "unitPrice": 49.99 },
+    { "sku": "SKU-2", "quantity": 1, "unitPrice": 120.00 }
+  ]
+}
+
+### 3. Same key, different body -> 409 IDEMPOTENCY_KEY_REUSED
+POST http://localhost:8080/orders
+Content-Type: application/json
+Idempotency-Key: demo-order-001
+
+{ "userId": 1, "items": [ { "sku": "SKU-1", "quantity": 99, "unitPrice": 49.99 } ] }
+
+### 4. Fetch an order (paste the id from step 1). PENDING -> CONFIRMED within a second or two.
+GET http://localhost:8080/orders/{{orderId}}
+
+### 5. SAGA ROLLBACK (payment declined): total > 5000 -> payment fails -> order CANCELLED -> stock released
+POST http://localhost:8080/orders
+Content-Type: application/json
+Idempotency-Key: demo-order-002
+
+{ "userId": 1, "items": [ { "sku": "SKU-1", "quantity": 20, "unitPrice": 400.00 } ] }
+
+### 6. Out of stock (SKU-3 has only 5) -> inventory rejects -> order CANCELLED
+POST http://localhost:8080/orders
+Content-Type: application/json
+Idempotency-Key: demo-order-003
+
+{ "userId": 1, "items": [ { "sku": "SKU-3", "quantity": 50, "unitPrice": 10.00 } ] }
+
+### 7. Check stock (should be unchanged after the rolled-back order in step 5)
+GET http://localhost:8080/inventory/SKU-1
+
+### 8. Direct payment API (idempotent per order: repeat it and you get 200 with the same payment)
+POST http://localhost:8080/payments
+Content-Type: application/json
+
+{ "orderId": "00000000-0000-0000-0000-000000000001", "amount": 25.00 }
+
+### 9. Unknown user -> 422
+POST http://localhost:8080/orders
+Content-Type: application/json
+Idempotency-Key: demo-order-004
+
+{ "userId": 999, "items": [ { "sku": "SKU-1", "quantity": 1, "unitPrice": 10.00 } ] }

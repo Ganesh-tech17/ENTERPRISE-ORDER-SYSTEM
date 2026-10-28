@@ -1,0 +1,64 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      default-filters:
+        # Retry ONLY safe/idempotent GETs, with exponential backoff. POSTs are never blindly retried
+        # by the gateway - clients retry them using the Idempotency-Key header.
+        - name: Retry
+          args:
+            retries: 3
+            methods: GET
+            statuses: BAD_GATEWAY, SERVICE_UNAVAILABLE
+            backoff:
+              firstBackoff: 100ms
+              maxBackoff: 1000ms
+              factor: 2
+              basedOnPreviousValue: false
+      routes:
+        - id: user-service
+          uri: ${USER_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/users/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: userCb
+                fallbackUri: forward:/fallback
+        - id: order-service
+          uri: ${ORDER_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/orders/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: orderCb
+                fallbackUri: forward:/fallback
+        - id: payment-service
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/payments/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: paymentCb
+                fallbackUri: forward:/fallback
+        - id: inventory-service
+          uri: ${INVENTORY_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/inventory/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: inventoryCb
+                fallbackUri: forward:/fallback
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
